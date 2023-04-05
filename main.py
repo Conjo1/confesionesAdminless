@@ -6,17 +6,31 @@ import re
 import requests
 import datetime
 import math
-import redis
 
 # env vars
 TOKEN = os.environ["token"]
 group_id = int(os.environ["group_id"])
 timeout_minutes = int(os.environ["timeout_minutes"])
 timeout_max_count = int(os.environ["timeout_max_count"])
-redis_url = os.getenv('REDISTOGO_URL', 'redis://localhost:6379')
+storage_file = os.getenv('storage_file', 'save.txt')
 api_url = "https://api.telegram.org/bot{}/".format(TOKEN)
 
 app = Flask(__name__)
+
+def load_storage(path): 
+    data = {}
+    if not os.path.isfile(path):
+        return data
+    with open(path, "r") as storage:
+        for line in storage:
+            k, v = line.strip("\n").split("=")
+            data[k] = v
+    return data
+
+def save_storage(path, data):
+    with open(path, "w") as storage:
+        for k, v in data.items():
+            storage.write(f"{k}={v}\n")
 
 def escape_markdown(text):
     # https://github.com/python-telegram-bot/python-telegram-bot/blob/master/telegram/utils/helpers.py#L149
@@ -115,12 +129,13 @@ template = "*Confesión #C{}* \n{}"
 template_timeout = "Solo se pueden enviar "+str(timeout_max_count)+" confesiones cada "+str(timeout_minutes)+" minuto\nPor favor espere {} segundos..."
 
 message_id = 0
-r = redis.from_url(redis_url)
-m = r.get("message_id")
-if m:
+r = load_storage(storage_file)
+m = r.get("message_id", None)
+if m is not None:
     message_id = int(m)
 else:
-    r.set("message_id", message_id)
+    r["message_id"] = message_id
+    save_storage(storage_file, r)
 
 users_timeout = {}
 
@@ -192,35 +207,40 @@ def telegram_bot():
         if msg_type == "text":
             text = str(msg["text"])
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             send_message(template.format(str(message_id), escape_markdown(text)), group_id)
 
         elif msg_type == "photo":
             photo_id = msg["photo"][-1]['file_id']
             caption = msg["caption"] if "caption" in msg else ""
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             send_photo(str(message_id), photo_id, caption)
         
         elif msg_type == "video":
             video_id = msg["video"]['file_id']
             caption = msg["caption"] if "caption" in msg else ""
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             send_video(str(message_id), video_id, caption)
         
         elif msg_type == "audio":
             audio_id = msg["audio"]['file_id']
             caption = msg["caption"] if "caption" in msg else ""
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             send_audio(str(message_id), audio_id, caption)
         
         elif msg_type == "voice":
             voice_id = msg["voice"]['file_id']
             caption = msg["caption"] if "caption" in msg else ""
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             send_voice(str(message_id), voice_id, caption)
 
         elif msg_type == "sticker":
@@ -234,7 +254,8 @@ def telegram_bot():
         elif msg_type == "poll":
             poll_data = msg["poll"]
             message_id += 1
-            r.set("message_id", message_id)
+            r["message_id"] = message_id
+            save_storage(storage_file, r)
             if "id" in poll_data: del poll_data["id"]
             send_poll(str(message_id), poll_data)
 
